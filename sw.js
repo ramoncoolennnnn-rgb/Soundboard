@@ -1,5 +1,5 @@
 // Bump VERSION whenever the app changes; the app then shows an "Update" button.
-const VERSION = "2026-11-21-3";
+const VERSION = "2026-11-21-4";
 const CACHE = "soundboard-" + VERSION;
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); });

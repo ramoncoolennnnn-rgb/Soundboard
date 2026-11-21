@@ -127,13 +127,14 @@ form { display: grid; gap: 12px; }
       <div class="meter" aria-hidden="true"><span id="micLvl"></span><i id="micThr"></i></div>
     </div>
     <div class="sliders">
-      <label><span>Voice volume <output id="micVolOut">80%</output></span><input type="range" id="micVol" min="0" max="3" step="0.05" value="0.8"></label>
+      <label><span>Voice volume <output id="micVolOut">200%</output></span><input type="range" id="micVol" min="0" max="5" step="0.05" value="2"></label>
       <label>Sensitivity <input type="range" id="micSens" min="0" max="40" step="1" value="22"></label>
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="micEcho" style="width:auto"> Echo cancellation <span style="font-weight:500">(louder when off)</span></label>
       <label>Microphone <select id="micIn"><option value="">Default</option></select></label>
       <label id="outWrap" hidden>Speaker output <select id="sbOut"><option value="">Default</option></select></label>
     </div>
     <p class="hint" id="micLat" role="status"></p>
-    <p class="hint">Your voice only goes to the speaker when it’s clearly louder than what the speaker itself puts into the mic. If feedback starts, that exact frequency is filtered out automatically (and the volume comes down only if that isn’t enough). With a Bluetooth speaker, pick this device’s own microphone above: using a Bluetooth headset’s mic drops it to low-quality call mode. Wired output has the least delay.</p>
+    <p class="hint">Your voice only goes to the speaker when it’s clearly louder than what the speaker itself puts into the mic. If feedback starts, that exact frequency is filtered out automatically (and the volume comes down only if that isn’t enough). With a Bluetooth speaker, pick this device’s own microphone above: using a Bluetooth headset’s mic drops it to low-quality call mode. Wired output has the least delay. While the mic is on, your phone’s volume buttons may control a separate “call” volume: press volume up if it’s still quiet.</p>
   </section>
   <main class="grid" id="grid" aria-label="Sound buttons"></main>
   <div class="empty" id="empty" hidden>
@@ -546,7 +547,7 @@ form { display: grid; gap: 12px; }
       // Echo cancellation removes what this device plays from the mic signal before the gate even looks at it.
       // Echo cancellation keeps the speaker out of the mic; no noise suppression or auto gain, which make voices sound processed and pump the level.
       const dev = $("micIn").value;
-      s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: dev ? { ideal: dev } : undefined, echoCancellation: true, noiseSuppression: false, autoGainControl: false, channelCount: 1, latency: 0 } });
+      s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: dev ? { ideal: dev } : undefined, echoCancellation: $("micEcho").checked, noiseSuppression: false, autoGainControl: false, channelCount: 1, latency: 0 } });
     } catch (e) {
       mic.starting = false;
       micStatus(e && e.name === "NotAllowedError" ? "Microphone is blocked. Allow it for this page, then tap Mic again." : "No microphone available. Check that one is connected and not in use.", "err");
@@ -567,9 +568,9 @@ form { display: grid; gap: 12px; }
     mic.gate = c.createGain(); mic.gate.gain.value = 0;
     mic.vol = c.createGain(); mic.vol.gain.value = +$("micVol").value;
     const lim = c.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
-    src.connect(hp); prev.connect(mic.an); prev.connect(comp); comp.connect(look); look.connect(mic.gate);
+    src.connect(hp); prev.connect(mic.an); prev.connect(comp); const mk = c.createGain(); mk.gain.value = 2.5; comp.connect(mk); mk.connect(look);   // makeup gain after the compressor look.connect(mic.gate);
     mic.gate.connect(mic.vol); mic.vol.connect(lim); lim.connect(c.destination);
-    mic.nodes = [src, hp, ...mic.notches, comp, look, mic.gate, mic.vol, lim];
+    mic.nodes = [src, hp, ...mic.notches, comp, mk, look, mic.gate, mic.vol, lim];
     mic.mb = new Float32Array(mic.an.fftSize); mic.kb = new Float32Array(busAn.fftSize); mic.fb = new Float32Array(mic.an.frequencyBinCount);
     $("micBtn").setAttribute("aria-pressed", "true");
     const tr = s.getAudioTracks()[0]; if (tr) tr.addEventListener("ended", micStop);
@@ -614,7 +615,7 @@ form { display: grid; gap: 12px; }
           toast(`Feedback at ${hz >= 1000 ? (hz / 1000).toFixed(1) + " kHz" : Math.round(hz) + " Hz"} filtered out`);
         } else {
           if (same) same.Q.setValueAtTime(Math.max(6, same.Q.value / 2), ctx.currentTime);   // widen the notch that didn't hold
-          const v = Math.max(0.1, +$("micVol").value * 0.8); $("micVol").value = v; setPref("sb-micvol", String(v)); showVol();
+          const v = Math.max(0.1, +$("micVol").value * 0.8); $("micVol").value = v; setPref("sb-micvol2", String(v)); showVol();
           mic.vol.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
           toast("Feedback detected. Voice volume lowered.");
         }
@@ -659,8 +660,9 @@ form { display: grid; gap: 12px; }
   $("micIn").onchange = () => { setPref("sb-micin", $("micIn").value); if (mic.on) { micStop(); micStart(); } };
   try { navigator.mediaDevices.addEventListener("devicechange", listDevices); } catch {}
   listDevices();
-  $("micVol").value = pref("sb-micvol", "0.8"); $("micSens").value = pref("sb-micsens", "22"); showVol();
-  $("micVol").oninput = () => { showVol(); setPref("sb-micvol", $("micVol").value); if (mic.vol) mic.vol.gain.setTargetAtTime(+$("micVol").value, ctx.currentTime, 0.02); };
+  $("micVol").value = pref("sb-micvol2", "2"); $("micEcho").checked = pref("sb-micecho", "0") === "1";
+  $("micEcho").onchange = () => { setPref("sb-micecho", $("micEcho").checked ? "1" : "0"); if (mic.on) { micStop(); micStart(); } }; $("micSens").value = pref("sb-micsens", "22"); showVol();
+  $("micVol").oninput = () => { showVol(); setPref("sb-micvol2", $("micVol").value); if (mic.vol) mic.vol.gain.setTargetAtTime(+$("micVol").value, ctx.currentTime, 0.02); };
   $("micSens").oninput = () => setPref("sb-micsens", $("micSens").value);
   $("micBtn").onclick = () => { if (mic.on) micStop(); else micStart(); };
   document.addEventListener("visibilitychange", () => { if (document.hidden && mic.on) setGate(false); });
